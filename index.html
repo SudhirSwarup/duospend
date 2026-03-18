@@ -345,6 +345,22 @@
   }
   .empty-state .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
   .empty-state p { font-size: 14px; }
+
+  /* Home period tabs (in header) */
+  .home-period-tabs {
+    display: flex; gap: 5px; margin-top: 10px;
+  }
+  .home-period-tab {
+    flex: 1; padding: 5px 4px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 8px; color: var(--muted);
+    font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; text-align: center;
+  }
+  .home-period-tab.active {
+    background: rgba(124,109,248,0.2); border-color: rgba(124,109,248,0.5);
+    color: var(--accent2);
+  }
 </style>
 </head>
 <body>
@@ -352,11 +368,17 @@
 <div class="header">
   <div class="header-top">
     <div class="app-name">duo<span>spend</span></div>
-    <div class="week-badge" id="headerWeek">this week</div>
+    <div class="week-badge" id="headerPeriodBadge">This week</div>
   </div>
   <div class="total-bar">
     <div class="total-amount" id="headerTotal">₹0</div>
     <div class="total-label">spent together</div>
+  </div>
+  <div class="home-period-tabs">
+    <button class="home-period-tab active" onclick="setHomePeriod('week')">Week</button>
+    <button class="home-period-tab" onclick="setHomePeriod('month')">Month</button>
+    <button class="home-period-tab" onclick="setHomePeriod('year')">Year</button>
+    <button class="home-period-tab" onclick="setHomePeriod('all')">All Time</button>
   </div>
 </div>
 
@@ -377,7 +399,7 @@
 
   <!-- Top categories mini -->
   <div class="card">
-    <div class="card-title">Top categories this week</div>
+    <div class="card-title" id="topCatTitle">Top categories · this week</div>
     <div id="topCatList">
       <div class="empty-state" style="padding: 16px 0;">
         <div class="icon">🧾</div>
@@ -577,6 +599,7 @@ let expenses = JSON.parse(localStorage.getItem('duospend_expenses') || '[]');
 let settings = JSON.parse(localStorage.getItem('duospend_settings') || '{"myName":"You","partnerName":"Partner","currency":"₹"}');
 let selectedWho = 'me';
 let selectedCat = 'food';
+let homePeriod = 'week';
 let currentPeriod = 'week';
 let periodOffset = 0;
 let pendingDeleteId = null;
@@ -593,6 +616,28 @@ function init() {
 }
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
+
+function setHomePeriod(p) {
+  homePeriod = p;
+  document.querySelectorAll('.home-period-tab').forEach((b,i) => {
+    b.classList.toggle('active', ['week','month','year','all'][i] === p);
+  });
+  renderHome();
+}
+
+function getHomePeriodExpenses() {
+  if (homePeriod === 'week')  { const r = getWeekRange(0);  return expenses.filter(e => { const d=new Date(e.date); return d>=r.start&&d<=r.end; }); }
+  if (homePeriod === 'month') { const r = getMonthRange(0); return expenses.filter(e => { const d=new Date(e.date); return d>=r.start&&d<=r.end; }); }
+  if (homePeriod === 'year')  { const r = getYearRange(0);  return expenses.filter(e => { const d=new Date(e.date); return d>=r.start&&d<=r.end; }); }
+  return [...expenses];
+}
+
+function getHomePeriodLabel() {
+  if (homePeriod === 'week')  return 'This week';
+  if (homePeriod === 'month') return 'This month';
+  if (homePeriod === 'year')  return 'This year';
+  return 'All time';
+}
 
 function fmt(n) { return settings.currency + Math.round(n).toLocaleString('en-IN'); }
 function catInfo(id) { return CATS.find(c => c.id === id) || CATS[7]; }
@@ -723,23 +768,21 @@ function addExpense() {
 // ─── Home ─────────────────────────────────────────────────────────
 
 function renderHome() {
-  const { start, end } = getWeekRange(0);
-  const wexp = expenses.filter(e => { const d = new Date(e.date); return d >= start && d <= end; });
-  const total = wexp.reduce((s,e) => s+e.amount, 0);
-  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
-  const pT  = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+  const pexp = getHomePeriodExpenses();
+  const total = pexp.reduce((s,e) => s+e.amount, 0);
+  const myT = pexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT  = pexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
 
   document.getElementById('headerTotal').textContent = fmt(total);
   document.getElementById('mySplit').textContent = fmt(myT);
   document.getElementById('partnerSplit').textContent = fmt(pT);
-  document.getElementById('myCount').textContent = wexp.filter(e=>e.who==='me').length + ' expenses';
-  document.getElementById('partnerCount').textContent = wexp.filter(e=>e.who==='partner').length + ' expenses';
-
-  const f2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-  document.getElementById('headerWeek').textContent = f2(start) + ' – ' + f2(end);
+  document.getElementById('myCount').textContent = pexp.filter(e=>e.who==='me').length + ' expenses';
+  document.getElementById('partnerCount').textContent = pexp.filter(e=>e.who==='partner').length + ' expenses';
+  document.getElementById('headerPeriodBadge').textContent = getHomePeriodLabel();
+  document.getElementById('topCatTitle').textContent = 'Top categories · ' + getHomePeriodLabel().toLowerCase();
 
   const catTotals = {};
-  wexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
+  pexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
   const sorted = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,4);
   const topDiv = document.getElementById('topCatList');
   if (!sorted.length) {
@@ -747,30 +790,31 @@ function renderHome() {
   } else {
     const max = sorted[0][1];
     topDiv.innerHTML = sorted.map(([id,amt]) => {
-      const c = catInfo(id);
+      const c2 = catInfo(id);
       return `<div class="cat-row">
-        <div class="cat-row-info"><span style="font-size:16px">${c.emoji}</span><span style="font-size:13px;font-weight:500">${c.name}</span></div>
-        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${Math.round(amt/max*100)}%;background:${c.color}"></div></div>
+        <div class="cat-row-info"><span style="font-size:16px">${c2.emoji}</span><span style="font-size:13px;font-weight:500">${c2.name}</span></div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${Math.round(amt/max*100)}%;background:${c2.color}"></div></div>
         <div class="cat-row-amount">${fmt(amt)}</div>
       </div>`;
     }).join('');
   }
 
+  // Recent always shows all-time latest regardless of period filter
   const recent = [...expenses].sort((a,b)=>b.id-a.id).slice(0,10);
   const recentDiv = document.getElementById('recentList');
   if (!recent.length) {
     recentDiv.innerHTML = '<div class="empty-state" style="padding:16px 0"><div class="icon">💸</div><p>Add your first expense!</p></div>';
   } else {
     recentDiv.innerHTML = recent.map(e => {
-      const c = catInfo(e.cat);
+      const c2 = catInfo(e.cat);
       const whoName = e.who==='me' ? settings.myName : settings.partnerName;
       const whoColor = e.who==='me' ? 'var(--accent2)' : 'var(--green)';
       const dateStr = new Date(e.date).toLocaleDateString('en-IN', { day:'numeric', month:'short' });
       return `<div class="expense-item" onclick="openDelete('${e.id}','${e.desc.replace(/'/g,"\'")}',${e.amount})">
-        <div class="expense-icon" style="background:${c.color}22">${c.emoji}</div>
+        <div class="expense-icon" style="background:${c2.color}22">${c2.emoji}</div>
         <div class="expense-info">
           <div class="expense-name">${e.desc}</div>
-          <div class="expense-meta">${c.name} · ${dateStr}</div>
+          <div class="expense-meta">${c2.name} · ${dateStr}</div>
         </div>
         <div class="expense-right">
           <div class="expense-amount">${fmt(e.amount)}</div>
