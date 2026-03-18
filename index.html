@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Duo Spend</title>
+<link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --bg2: #1a1a2e;
+    --bg3: #16213e;
+    --card: #1e1e35;
+    --card2: #252542;
+    --border: rgba(255,255,255,0.08);
+    --border2: rgba(255,255,255,0.14);
+    --text: #e8e8f0;
+    --muted: #8888aa;
+    --accent: #7c6df8;
+    --accent2: #a89af8;
+    --green: #4ecdc4;
+    --amber: #ffd166;
+    --red: #ef476f;
+    --pink: #f78da7;
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    max-width: 430px;
+    margin: 0 auto;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .app-name { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+  .app-name span { color: var(--accent2); }
+  .week-badge {
+    font-size: 12px; font-weight: 500;
+    background: rgba(124,109,248,0.15);
+    color: var(--accent2);
+    border: 1px solid rgba(124,109,248,0.25);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+  .total-bar {
+    display: flex; align-items: baseline; gap: 8px; margin-top: 8px;
+  }
+  .total-amount {
+    font-family: 'DM Mono', monospace;
+    font-size: 28px; font-weight: 500;
+    color: var(--text);
+    letter-spacing: -1px;
+  }
+  .total-label { font-size: 12px; color: var(--muted); }
+
+  /* Nav */
+  .nav {
+    display: flex;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    position: fixed;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 100%; max-width: 430px;
+    z-index: 100;
+  }
+  .nav-btn {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 3px; padding: 10px 0 14px;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); font-family: 'DM Sans', sans-serif;
+    font-size: 11px; font-weight: 500; transition: color 0.2s;
+  }
+  .nav-btn.active { color: var(--accent2); }
+  .nav-icon { font-size: 20px; line-height: 1; }
+  .nav-btn.add-btn {
+    color: var(--bg);
+    background: var(--accent);
+    border-radius: 14px;
+    margin: -8px 12px 0;
+    padding: 8px 0 10px;
+    flex: 1.2;
+  }
+  .nav-btn.add-btn .nav-icon { font-size: 24px; }
+
+  /* Main content */
+  .page { display: none; padding: 16px 16px 90px; }
+  .page.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .card-title {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px;
+  }
+
+  /* Summary row */
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .summary-cell {
+    background: var(--card2);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+  }
+  .summary-cell .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .summary-cell .value {
+    font-family: 'DM Mono', monospace;
+    font-size: 18px; font-weight: 500;
+  }
+  .summary-cell .sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* Expense list */
+  .expense-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .expense-item:last-child { border-bottom: none; }
+  .expense-item:active { opacity: 0.6; }
+  .expense-icon {
+    width: 40px; height: 40px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .expense-info { flex: 1; min-width: 0; }
+  .expense-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .expense-meta { font-size: 12px; color: var(--muted); margin-top: 1px; }
+  .expense-right { text-align: right; flex-shrink: 0; }
+  .expense-amount {
+    font-family: 'DM Mono', monospace;
+    font-size: 14px; font-weight: 500;
+  }
+  .expense-who {
+    font-size: 11px; color: var(--muted); margin-top: 2px;
+  }
+
+  /* Person avatar */
+  .avatar {
+    width: 18px; height: 18px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 600; margin-left: 4px;
+  }
+  .avatar-me { background: rgba(124,109,248,0.25); color: var(--accent2); }
+  .avatar-partner { background: rgba(78,205,196,0.25); color: var(--green); }
+
+  /* Category tag */
+  .cat-tag {
+    display: inline-block; font-size: 10px; font-weight: 600;
+    padding: 2px 7px; border-radius: 6px; letter-spacing: 0.3px;
+  }
+
+  /* Add form */
+  .form-group { margin-bottom: 14px; }
+  .form-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.6px; }
+  .form-input {
+    width: 100%; padding: 13px 14px;
+    background: var(--card2); border: 1px solid var(--border2);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 15px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .form-input:focus { border-color: var(--accent); }
+  .form-input::placeholder { color: var(--muted); }
+  select.form-input { appearance: none; cursor: pointer; }
+  .amount-input {
+    font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 500;
+    text-align: center; letter-spacing: -0.5px;
+  }
+
+  /* Person toggle */
+  .who-toggle { display: flex; gap: 8px; }
+  .who-btn {
+    flex: 1; padding: 11px;
+    background: var(--card2); border: 1.5px solid var(--border2);
+    border-radius: var(--radius-sm); cursor: pointer;
+    font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500;
+    color: var(--muted); transition: all 0.2s; text-align: center;
+  }
+  .who-btn.active-me { border-color: var(--accent); color: var(--accent2); background: rgba(124,109,248,0.1); }
+  .who-btn.active-partner { border-color: var(--green); color: var(--green); background: rgba(78,205,196,0.1); }
+
+  /* Category grid */
+  .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .cat-btn {
+    background: var(--card2); border: 1.5px solid var(--border2);
+    border-radius: var(--radius-sm); cursor: pointer;
+    padding: 10px 4px; text-align: center;
+    transition: all 0.2s;
+  }
+  .cat-btn .cat-emoji { font-size: 20px; display: block; margin-bottom: 3px; }
+  .cat-btn .cat-name { font-size: 10px; color: var(--muted); font-family: 'DM Sans', sans-serif; }
+  .cat-btn.selected { border-color: var(--accent); background: rgba(124,109,248,0.12); }
+  .cat-btn.selected .cat-name { color: var(--accent2); }
+
+  /* Submit btn */
+  .submit-btn {
+    width: 100%; padding: 16px;
+    background: var(--accent); border: none; border-radius: var(--radius);
+    color: #fff; font-family: 'DM Sans', sans-serif;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+    letter-spacing: -0.2px;
+  }
+  .submit-btn:active { transform: scale(0.98); opacity: 0.9; }
+
+  /* Week nav */
+  .week-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .week-nav-btn {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: var(--card2); border: 1px solid var(--border);
+    color: var(--text); font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .week-nav-btn:active { background: var(--card); }
+  .week-label { font-size: 14px; font-weight: 500; }
+
+  /* Chart container */
+  .chart-wrap { position: relative; width: 100%; height: 200px; }
+
+  /* Category breakdown */
+  .cat-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .cat-row:last-child { border-bottom: none; }
+  .cat-bar-wrap { flex: 1; height: 6px; background: var(--card2); border-radius: 3px; overflow: hidden; }
+  .cat-bar { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+  .cat-row-info { display: flex; align-items: center; gap: 8px; width: 120px; flex-shrink: 0; }
+  .cat-row-amount { font-family: 'DM Mono', monospace; font-size: 13px; width: 60px; text-align: right; flex-shrink: 0; }
+
+  /* Delete modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); z-index: 200;
+    align-items: flex-end; justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2); border-radius: 20px 20px 0 0;
+    border-top: 1px solid var(--border2);
+    padding: 20px 20px 40px; width: 100%; max-width: 430px;
+  }
+  .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .modal-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .modal-btns { display: flex; gap: 10px; }
+  .modal-cancel {
+    flex: 1; padding: 14px;
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+    cursor: pointer;
+  }
+  .modal-delete {
+    flex: 1; padding: 14px;
+    background: rgba(239,71,111,0.15); border: 1px solid rgba(239,71,111,0.3);
+    border-radius: var(--radius-sm); color: var(--red);
+    font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--card2); border: 1px solid var(--border2);
+    color: var(--text); padding: 10px 20px;
+    border-radius: 24px; font-size: 13px; font-weight: 500;
+    opacity: 0; transition: all 0.3s; z-index: 300;
+    pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* Settings */
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 0; border-bottom: 1px solid var(--border);
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { font-size: 14px; font-weight: 500; }
+  .setting-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .name-input {
+    background: var(--card2); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 7px 10px;
+    color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px;
+    width: 120px; text-align: right; outline: none;
+  }
+  .name-input:focus { border-color: var(--accent); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 0; }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center; padding: 40px 20px; color: var(--muted);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
+  .empty-state p { font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div class="app-name">duo<span>spend</span></div>
+    <div class="week-badge" id="headerWeek">this week</div>
+  </div>
+  <div class="total-bar">
+    <div class="total-amount" id="headerTotal">₹0</div>
+    <div class="total-label">spent together</div>
+  </div>
+</div>
+
+<!-- Pages -->
+<div id="page-home" class="page active">
+  <div class="summary-grid">
+    <div class="summary-cell">
+      <div class="label" id="myNameLabel">You</div>
+      <div class="value" id="mySplit" style="color: var(--accent2)">₹0</div>
+      <div class="sub" id="myCount">0 expenses</div>
+    </div>
+    <div class="summary-cell">
+      <div class="label" id="partnerNameLabel">Partner</div>
+      <div class="value" id="partnerSplit" style="color: var(--green)">₹0</div>
+      <div class="sub" id="partnerCount">0 expenses</div>
+    </div>
+  </div>
+
+  <!-- Top categories mini -->
+  <div class="card">
+    <div class="card-title">Top categories this week</div>
+    <div id="topCatList">
+      <div class="empty-state" style="padding: 16px 0;">
+        <div class="icon">🧾</div>
+        <p>No expenses yet</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent expenses -->
+  <div class="card">
+    <div class="card-title">Recent</div>
+    <div id="recentList">
+      <div class="empty-state" style="padding: 16px 0;">
+        <div class="icon">💸</div>
+        <p>Add your first expense!</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="page-add" class="page">
+  <div class="card">
+    <div class="form-group">
+      <label class="form-label">Amount (₹)</label>
+      <input type="number" class="form-input amount-input" id="addAmount" placeholder="0" inputmode="decimal" min="0">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input type="text" class="form-input" id="addDesc" placeholder="e.g. Grocery run, Dinner at Nagarjuna…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Paid by</label>
+      <div class="who-toggle">
+        <button class="who-btn active-me" id="whoMe" onclick="selectWho('me')">👤 <span id="whoMeLabel">You</span></button>
+        <button class="who-btn" id="whoPartner" onclick="selectWho('partner')">👤 <span id="whoPartnerLabel">Partner</span></button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Category</label>
+      <div class="cat-grid" id="catGrid"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" class="form-input" id="addDate">
+    </div>
+    <button class="submit-btn" onclick="addExpense()">Add Expense</button>
+  </div>
+</div>
+
+<div id="page-charts" class="page">
+  <div class="week-nav">
+    <button class="week-nav-btn" onclick="changeWeek(-1)">‹</button>
+    <div class="week-label" id="chartWeekLabel">This week</div>
+    <button class="week-nav-btn" onclick="changeWeek(1)">›</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Daily spending</div>
+    <div class="chart-wrap"><canvas id="dailyChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">By category</div>
+    <div id="catBreakdown"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Who spent more</div>
+    <div class="chart-wrap" style="height:160px"><canvas id="splitChart"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Weekly totals</div>
+    <div class="chart-wrap"><canvas id="weeklyChart"></canvas></div>
+  </div>
+</div>
+
+<div id="page-settings" class="page">
+  <div class="card">
+    <div class="card-title">Names</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Your name</div>
+        <div class="setting-sub">Shows as "paid by you"</div>
+      </div>
+      <input class="name-input" id="settingMyName" placeholder="Your name" oninput="saveSettings()">
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Partner's name</div>
+        <div class="setting-sub">Shows as "paid by them"</div>
+      </div>
+      <input class="name-input" id="settingPartnerName" placeholder="Partner" oninput="saveSettings()">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Currency</div>
+    <div class="setting-row">
+      <div class="setting-label">Symbol</div>
+      <select class="form-input" id="settingCurrency" style="width:100px;padding:8px 10px;font-size:14px" onchange="saveSettings()">
+        <option value="₹">₹ INR</option>
+        <option value="$">$ USD</option>
+        <option value="€">€ EUR</option>
+        <option value="£">£ GBP</option>
+        <option value="¥">¥ JPY</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Data</div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">Export this week</div>
+        <div class="setting-sub">Copy as text to share</div>
+      </div>
+      <button class="week-nav-btn" onclick="exportWeek()" style="width:auto;padding:0 14px;font-size:13px">Share</button>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label" style="color:var(--red)">Clear all data</div>
+        <div class="setting-sub">Cannot be undone</div>
+      </div>
+      <button class="week-nav-btn" onclick="confirmClearAll()" style="width:auto;padding:0 14px;font-size:13px;color:var(--red)">Clear</button>
+    </div>
+  </div>
+</div>
+
+<!-- Nav -->
+<nav class="nav">
+  <button class="nav-btn active" id="nav-home" onclick="showPage('home')">
+    <span class="nav-icon">🏠</span>Home
+  </button>
+  <button class="nav-btn add-btn" id="nav-add" onclick="showPage('add')">
+    <span class="nav-icon">+</span>Add
+  </button>
+  <button class="nav-btn" id="nav-charts" onclick="showPage('charts')">
+    <span class="nav-icon">📊</span>Charts
+  </button>
+  <button class="nav-btn" id="nav-settings" onclick="showPage('settings')">
+    <span class="nav-icon">⚙️</span>Settings
+  </button>
+</nav>
+
+<!-- Delete modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <div class="modal-title">Delete expense?</div>
+    <div class="modal-sub" id="deleteModalSub">This cannot be undone.</div>
+    <div class="modal-btns">
+      <button class="modal-cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-delete" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CATS = [
+  { id:'food',     emoji:'🍽️', name:'Food',     color:'#ef476f' },
+  { id:'grocery',  emoji:'🛒', name:'Grocery',  color:'#ffd166' },
+  { id:'travel',   emoji:'🚗', name:'Travel',   color:'#06d6a0' },
+  { id:'bills',    emoji:'💡', name:'Bills',    color:'#118ab2' },
+  { id:'health',   emoji:'💊', name:'Health',   color:'#4ecdc4' },
+  { id:'shopping', emoji:'🛍️', name:'Shopping', color:'#a89af8' },
+  { id:'fun',      emoji:'🎉', name:'Fun',      color:'#f78da7' },
+  { id:'other',    emoji:'📦', name:'Other',    color:'#8888aa' },
+];
+
+let expenses = JSON.parse(localStorage.getItem('duospend_expenses') || '[]');
+let settings = JSON.parse(localStorage.getItem('duospend_settings') || '{"myName":"You","partnerName":"Partner","currency":"₹"}');
+let selectedWho = 'me';
+let selectedCat = 'food';
+let chartWeekOffset = 0;
+let pendingDeleteId = null;
+let dailyChartInst = null, splitChartInst = null, weeklyChartInst = null;
+
+// Init
+function init() {
+  document.getElementById('settingMyName').value = settings.myName;
+  document.getElementById('settingPartnerName').value = settings.partnerName;
+  document.getElementById('settingCurrency').value = settings.currency;
+  document.getElementById('addDate').value = todayStr();
+  buildCatGrid();
+  updateNames();
+  renderHome();
+}
+
+function todayStr() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getWeekStart(offset = 0) {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff + offset * 7);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+function getWeekRange(offset = 0) {
+  const start = getWeekStart(offset);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { start, end };
+}
+
+function weekLabel(offset) {
+  if (offset === 0) return 'This week';
+  if (offset === -1) return 'Last week';
+  const { start, end } = getWeekRange(offset);
+  const fmt = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+function fmt(n) { return settings.currency + n.toLocaleString('en-IN'); }
+
+function saveSettings() {
+  settings.myName = document.getElementById('settingMyName').value || 'You';
+  settings.partnerName = document.getElementById('settingPartnerName').value || 'Partner';
+  settings.currency = document.getElementById('settingCurrency').value;
+  localStorage.setItem('duospend_settings', JSON.stringify(settings));
+  updateNames();
+  renderHome();
+}
+
+function updateNames() {
+  document.getElementById('myNameLabel').textContent = settings.myName;
+  document.getElementById('partnerNameLabel').textContent = settings.partnerName;
+  document.getElementById('whoMeLabel').textContent = settings.myName;
+  document.getElementById('whoPartnerLabel').textContent = settings.partnerName;
+}
+
+function buildCatGrid() {
+  const grid = document.getElementById('catGrid');
+  grid.innerHTML = CATS.map(c => `
+    <button class="cat-btn ${c.id === selectedCat ? 'selected' : ''}" onclick="selectCat('${c.id}')">
+      <span class="cat-emoji">${c.emoji}</span>
+      <span class="cat-name">${c.name}</span>
+    </button>
+  `).join('');
+}
+
+function selectCat(id) {
+  selectedCat = id;
+  buildCatGrid();
+}
+
+function selectWho(who) {
+  selectedWho = who;
+  document.getElementById('whoMe').className = 'who-btn' + (who === 'me' ? ' active-me' : '');
+  document.getElementById('whoPartner').className = 'who-btn' + (who === 'partner' ? ' active-partner' : '');
+}
+
+function addExpense() {
+  const amount = parseFloat(document.getElementById('addAmount').value);
+  const desc = document.getElementById('addDesc').value.trim();
+  const date = document.getElementById('addDate').value;
+
+  if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
+  if (!desc) { showToast('Add a description'); return; }
+  if (!date) { showToast('Pick a date'); return; }
+
+  const exp = { id: Date.now().toString(), amount, desc, who: selectedWho, cat: selectedCat, date };
+  expenses.push(exp);
+  localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
+
+  document.getElementById('addAmount').value = '';
+  document.getElementById('addDesc').value = '';
+  document.getElementById('addDate').value = todayStr();
+  selectedCat = 'food'; selectedWho = 'me';
+  buildCatGrid(); selectWho('me');
+
+  showToast('Expense added ✓');
+  renderHome();
+  showPage('home');
+}
+
+function getWeekExpenses(offset = 0) {
+  const { start, end } = getWeekRange(offset);
+  end.setHours(23,59,59,999);
+  return expenses.filter(e => {
+    const d = new Date(e.date);
+    return d >= start && d <= end;
+  });
+}
+
+function catInfo(id) { return CATS.find(c => c.id === id) || CATS[7]; }
+
+function renderHome() {
+  const wexp = getWeekExpenses(0);
+  const total = wexp.reduce((s,e) => s + e.amount, 0);
+  const myTotal = wexp.filter(e => e.who === 'me').reduce((s,e) => s + e.amount, 0);
+  const pTotal = wexp.filter(e => e.who === 'partner').reduce((s,e) => s + e.amount, 0);
+
+  document.getElementById('headerTotal').textContent = fmt(total);
+  document.getElementById('mySplit').textContent = fmt(myTotal);
+  document.getElementById('partnerSplit').textContent = fmt(pTotal);
+  document.getElementById('myCount').textContent = wexp.filter(e=>e.who==='me').length + ' expenses';
+  document.getElementById('partnerCount').textContent = wexp.filter(e=>e.who==='partner').length + ' expenses';
+
+  const { start, end } = getWeekRange(0);
+  const fmt2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  document.getElementById('headerWeek').textContent = `${fmt2(start)} – ${fmt2(end)}`;
+
+  // Top cats
+  const catTotals = {};
+  wexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
+  const sorted = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0,4);
+
+  const topDiv = document.getElementById('topCatList');
+  if (!sorted.length) {
+    topDiv.innerHTML = '<div class="empty-state" style="padding:16px 0"><div class="icon">🧾</div><p>No expenses yet</p></div>';
+  } else {
+    const max = sorted[0][1];
+    topDiv.innerHTML = sorted.map(([id,amt]) => {
+      const c = catInfo(id);
+      const pct = Math.round(amt/max*100);
+      return `<div class="cat-row">
+        <div class="cat-row-info">
+          <span style="font-size:16px">${c.emoji}</span>
+          <span style="font-size:13px;font-weight:500">${c.name}</span>
+        </div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%;background:${c.color}"></div></div>
+        <div class="cat-row-amount">${fmt(amt)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Recent
+  const recent = [...expenses].sort((a,b) => b.id-a.id).slice(0,10);
+  const recentDiv = document.getElementById('recentList');
+  if (!recent.length) {
+    recentDiv.innerHTML = '<div class="empty-state" style="padding:16px 0"><div class="icon">💸</div><p>Add your first expense!</p></div>';
+  } else {
+    recentDiv.innerHTML = recent.map(e => {
+      const c = catInfo(e.cat);
+      const whoName = e.who === 'me' ? settings.myName : settings.partnerName;
+      const whoColor = e.who === 'me' ? 'var(--accent2)' : 'var(--green)';
+      const dateStr = new Date(e.date).toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+      return `<div class="expense-item" onclick="openDelete('${e.id}','${e.desc}',${e.amount})">
+        <div class="expense-icon" style="background:${c.color}22">${c.emoji}</div>
+        <div class="expense-info">
+          <div class="expense-name">${e.desc}</div>
+          <div class="expense-meta">${c.name} · ${dateStr}</div>
+        </div>
+        <div class="expense-right">
+          <div class="expense-amount">${fmt(e.amount)}</div>
+          <div class="expense-who" style="color:${whoColor}">${whoName}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function renderCharts() {
+  const wexp = getWeekExpenses(chartWeekOffset);
+  document.getElementById('chartWeekLabel').textContent = weekLabel(chartWeekOffset);
+
+  // Daily chart
+  const { start } = getWeekRange(chartWeekOffset);
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const dayTotals = Array(7).fill(0);
+  const dayMine = Array(7).fill(0);
+  const dayPart = Array(7).fill(0);
+
+  wexp.forEach(e => {
+    const d = new Date(e.date);
+    let dow = d.getDay() - 1; if (dow < 0) dow = 6;
+    dayTotals[dow] += e.amount;
+    if (e.who === 'me') dayMine[dow] += e.amount;
+    else dayPart[dow] += e.amount;
+  });
+
+  if (dailyChartInst) dailyChartInst.destroy();
+  dailyChartInst = new Chart(document.getElementById('dailyChart'), {
+    type: 'bar',
+    data: {
+      labels: days,
+      datasets: [
+        { label: settings.myName, data: dayMine, backgroundColor: 'rgba(124,109,248,0.7)', borderRadius: 6, borderSkipped: false },
+        { label: settings.partnerName, data: dayPart, backgroundColor: 'rgba(78,205,196,0.7)', borderRadius: 6, borderSkipped: false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color:'#8888aa', font:{ family:'DM Sans', size:12 }, boxWidth:10, boxHeight:10, borderRadius:3 } } },
+      scales: {
+        x: { stacked: true, ticks:{ color:'#8888aa', font:{size:11} }, grid:{ display:false }, border:{display:false} },
+        y: { stacked: true, ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{display:false} }
+      }
+    }
+  });
+
+  // Category breakdown
+  const catTotals = {};
+  wexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
+  const sortedCats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  const maxCat = sortedCats[0]?.[1] || 1;
+  const catDiv = document.getElementById('catBreakdown');
+  if (!sortedCats.length) {
+    catDiv.innerHTML = '<div class="empty-state"><div class="icon">📊</div><p>No data this week</p></div>';
+  } else {
+    catDiv.innerHTML = sortedCats.map(([id,amt]) => {
+      const c = catInfo(id);
+      const pct = Math.round(amt/maxCat*100);
+      const pctOfTotal = wexp.reduce((s,e)=>s+e.amount,0);
+      return `<div class="cat-row">
+        <div class="cat-row-info">
+          <span style="font-size:16px">${c.emoji}</span>
+          <span style="font-size:13px;font-weight:500">${c.name}</span>
+        </div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%;background:${c.color}"></div></div>
+        <div class="cat-row-amount">${fmt(amt)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Split chart
+  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+  if (splitChartInst) splitChartInst.destroy();
+  splitChartInst = new Chart(document.getElementById('splitChart'), {
+    type: 'doughnut',
+    data: {
+      labels: [settings.myName, settings.partnerName],
+      datasets: [{ data: [myT||0.001, pT||0.001], backgroundColor: ['rgba(124,109,248,0.8)','rgba(78,205,196,0.8)'], borderWidth: 0, hoverOffset: 4 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: { position:'right', labels:{ color:'#8888aa', font:{family:'DM Sans',size:12}, boxWidth:10, boxHeight:10, borderRadius:3 } },
+        tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.raw === 0.001 ? 0 : ctx.raw)}` } }
+      }
+    }
+  });
+
+  // Weekly totals (last 8 weeks)
+  const weekLabels = [], weekData = [];
+  for (let w = -7; w <= 0; w++) {
+    const wk = getWeekRange(w);
+    const end2 = new Date(wk.end); end2.setHours(23,59,59,999);
+    const sum = expenses.filter(e => { const d = new Date(e.date); return d >= wk.start && d <= end2; }).reduce((s,e)=>s+e.amount,0);
+    const lbl = wk.start.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+    weekLabels.push(lbl);
+    weekData.push(sum);
+  }
+  if (weeklyChartInst) weeklyChartInst.destroy();
+  weeklyChartInst = new Chart(document.getElementById('weeklyChart'), {
+    type: 'line',
+    data: {
+      labels: weekLabels,
+      datasets: [{
+        label: 'Weekly total',
+        data: weekData,
+        borderColor: '#7c6df8',
+        backgroundColor: 'rgba(124,109,248,0.12)',
+        fill: true,
+        tension: 0.4,
+        pointBackgroundColor: '#7c6df8',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks:{ color:'#8888aa', font:{size:10}, maxRotation:45 }, grid:{ display:false }, border:{display:false} },
+        y: { ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{display:false} }
+      }
+    }
+  });
+}
+
+function changeWeek(dir) {
+  chartWeekOffset += dir;
+  if (chartWeekOffset > 0) chartWeekOffset = 0;
+  renderCharts();
+}
+
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.getElementById('nav-' + page).classList.add('active');
+  if (page === 'charts') renderCharts();
+  if (page === 'home') renderHome();
+}
+
+function openDelete(id, desc, amount) {
+  pendingDeleteId = id;
+  document.getElementById('deleteModalSub').textContent = `"${desc}" — ${fmt(amount)}`;
+  document.getElementById('deleteModal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('deleteModal').classList.remove('open');
+  pendingDeleteId = null;
+}
+function confirmDelete() {
+  if (!pendingDeleteId) return;
+  expenses = expenses.filter(e => e.id !== pendingDeleteId);
+  localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
+  closeModal();
+  showToast('Deleted');
+  renderHome();
+}
+
+function confirmClearAll() {
+  if (confirm('Delete all expense data? This cannot be undone.')) {
+    expenses = [];
+    localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
+    showToast('All data cleared');
+    renderHome();
+  }
+}
+
+function exportWeek() {
+  const wexp = getWeekExpenses(0);
+  if (!wexp.empty && !wexp.length) { showToast('No expenses this week'); return; }
+  const { start, end } = getWeekRange(0);
+  const fmt2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  const total = wexp.reduce((s,e)=>s+e.amount,0);
+  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+
+  let text = `💰 Week ${fmt2(start)} – ${fmt2(end)}\nTotal: ${fmt(total)}\n${settings.myName}: ${fmt(myT)} | ${settings.partnerName}: ${fmt(pT)}\n\n`;
+  const sorted = [...wexp].sort((a,b) => new Date(a.date)-new Date(b.date));
+  sorted.forEach(e => {
+    const c = catInfo(e.cat);
+    const who = e.who==='me'?settings.myName:settings.partnerName;
+    text += `${e.date} ${c.emoji} ${e.desc} — ${fmt(e.amount)} (${who})\n`;
+  });
+
+  if (navigator.share) {
+    navigator.share({ text });
+  } else {
+    navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// Close modal on overlay click
+document.getElementById('deleteModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+init();
+</script>
+</body>
+</html>
