@@ -211,7 +211,7 @@
   .who-btn.active-partner { border-color: var(--green); color: var(--green); background: rgba(78,205,196,0.1); }
 
   /* Category grid */
-  .cat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .cat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
   .cat-btn {
     background: var(--card2); border: 1.5px solid var(--border2);
     border-radius: var(--radius-sm); cursor: pointer;
@@ -233,6 +233,22 @@
     letter-spacing: -0.2px;
   }
   .submit-btn:active { transform: scale(0.98); opacity: 0.9; }
+
+  /* Period tabs */
+  .period-tabs {
+    display: flex; gap: 6px; margin-bottom: 14px;
+  }
+  .period-tab {
+    flex: 1; padding: 8px 4px;
+    background: var(--card2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--muted);
+    font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; text-align: center;
+  }
+  .period-tab.active {
+    background: rgba(124,109,248,0.15); border-color: rgba(124,109,248,0.4);
+    color: var(--accent2);
+  }
 
   /* Week nav */
   .week-nav {
@@ -412,15 +428,36 @@
 </div>
 
 <div id="page-charts" class="page">
-  <div class="week-nav">
-    <button class="week-nav-btn" onclick="changeWeek(-1)">‹</button>
-    <div class="week-label" id="chartWeekLabel">This week</div>
-    <button class="week-nav-btn" onclick="changeWeek(1)">›</button>
+
+  <div class="period-tabs">
+    <button class="period-tab active" onclick="setPeriod('week')">Week</button>
+    <button class="period-tab" onclick="setPeriod('month')">Month</button>
+    <button class="period-tab" onclick="setPeriod('year')">Year</button>
+    <button class="period-tab" onclick="setPeriod('all')">All Time</button>
+  </div>
+
+  <div class="week-nav" id="periodNav">
+    <button class="week-nav-btn" onclick="changePeriod(-1)">‹</button>
+    <div class="week-label" id="chartPeriodLabel">This week</div>
+    <button class="week-nav-btn" onclick="changePeriod(1)">›</button>
+  </div>
+
+  <div class="summary-grid" style="margin-bottom:12px">
+    <div class="summary-cell">
+      <div class="label" id="chartMyLabel">You</div>
+      <div class="value" id="chartMyAmt" style="color:var(--accent2)">0</div>
+      <div class="sub" id="chartMyCount">0 expenses</div>
+    </div>
+    <div class="summary-cell">
+      <div class="label" id="chartPartnerLabel">Partner</div>
+      <div class="value" id="chartPartnerAmt" style="color:var(--green)">0</div>
+      <div class="sub" id="chartPartnerCount">0 expenses</div>
+    </div>
   </div>
 
   <div class="card">
-    <div class="card-title">Daily spending</div>
-    <div class="chart-wrap"><canvas id="dailyChart"></canvas></div>
+    <div class="card-title" id="mainChartTitle">Daily spending</div>
+    <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
   </div>
 
   <div class="card">
@@ -433,10 +470,11 @@
     <div class="chart-wrap" style="height:160px"><canvas id="splitChart"></canvas></div>
   </div>
 
-  <div class="card">
-    <div class="card-title">Weekly totals</div>
-    <div class="chart-wrap"><canvas id="weeklyChart"></canvas></div>
+  <div class="card" id="trendCard">
+    <div class="card-title" id="trendChartTitle">Weekly totals (last 8 weeks)</div>
+    <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
   </div>
+
 </div>
 
 <div id="page-settings" class="page">
@@ -523,6 +561,8 @@
 
 <script>
 const CATS = [
+  { id:'rent',     emoji:'🏠', name:'Rent',     color:'#e07b39' },
+  { id:'caremi',   emoji:'🚘', name:'Car EMI',  color:'#3a86ff' },
   { id:'food',     emoji:'🍽️', name:'Food',     color:'#ef476f' },
   { id:'grocery',  emoji:'🛒', name:'Grocery',  color:'#ffd166' },
   { id:'travel',   emoji:'🚗', name:'Travel',   color:'#06d6a0' },
@@ -537,11 +577,11 @@ let expenses = JSON.parse(localStorage.getItem('duospend_expenses') || '[]');
 let settings = JSON.parse(localStorage.getItem('duospend_settings') || '{"myName":"You","partnerName":"Partner","currency":"₹"}');
 let selectedWho = 'me';
 let selectedCat = 'food';
-let chartWeekOffset = 0;
+let currentPeriod = 'week';
+let periodOffset = 0;
 let pendingDeleteId = null;
-let dailyChartInst = null, splitChartInst = null, weeklyChartInst = null;
+let mainChartInst = null, splitChartInst = null, trendChartInst = null;
 
-// Init
 function init() {
   document.getElementById('settingMyName').value = settings.myName;
   document.getElementById('settingPartnerName').value = settings.partnerName;
@@ -552,35 +592,79 @@ function init() {
   renderHome();
 }
 
-function todayStr() {
-  return new Date().toISOString().split('T')[0];
-}
+function todayStr() { return new Date().toISOString().split('T')[0]; }
 
-function getWeekStart(offset = 0) {
+function fmt(n) { return settings.currency + Math.round(n).toLocaleString('en-IN'); }
+function catInfo(id) { return CATS.find(c => c.id === id) || CATS[7]; }
+
+// ─── Period helpers ───────────────────────────────────────────────
+
+function getWeekRange(offset) {
   const d = new Date();
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff + offset * 7);
-  d.setHours(0,0,0,0);
-  return d;
-}
-
-function getWeekRange(offset = 0) {
-  const start = getWeekStart(offset);
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
+  d.setDate(diff + offset * 7); d.setHours(0,0,0,0);
+  const start = new Date(d);
+  const end = new Date(d); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999);
   return { start, end };
 }
 
-function weekLabel(offset) {
-  if (offset === 0) return 'This week';
-  if (offset === -1) return 'Last week';
-  const { start, end } = getWeekRange(offset);
-  const fmt = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-  return `${fmt(start)} – ${fmt(end)}`;
+function getMonthRange(offset) {
+  const d = new Date();
+  d.setDate(1); d.setMonth(d.getMonth() + offset); d.setHours(0,0,0,0);
+  const start = new Date(d);
+  const end = new Date(d.getFullYear(), d.getMonth()+1, 0, 23, 59, 59, 999);
+  return { start, end };
 }
 
-function fmt(n) { return settings.currency + n.toLocaleString('en-IN'); }
+function getYearRange(offset) {
+  const y = new Date().getFullYear() + offset;
+  return {
+    start: new Date(y, 0, 1, 0, 0, 0, 0),
+    end:   new Date(y, 11, 31, 23, 59, 59, 999)
+  };
+}
+
+function getAllRange() {
+  if (!expenses.length) return { start: new Date(), end: new Date() };
+  const dates = expenses.map(e => new Date(e.date));
+  return { start: new Date(Math.min(...dates)), end: new Date(Math.max(...dates)) };
+}
+
+function getPeriodRange() {
+  if (currentPeriod === 'week')  return getWeekRange(periodOffset);
+  if (currentPeriod === 'month') return getMonthRange(periodOffset);
+  if (currentPeriod === 'year')  return getYearRange(periodOffset);
+  return getAllRange();
+}
+
+function getPeriodExpenses() {
+  const { start, end } = getPeriodRange();
+  return expenses.filter(e => { const d = new Date(e.date); return d >= start && d <= end; });
+}
+
+function getPeriodLabel() {
+  if (currentPeriod === 'all') return 'All time';
+  const { start, end } = getPeriodRange();
+  if (currentPeriod === 'week') {
+    if (periodOffset === 0) return 'This week';
+    if (periodOffset === -1) return 'Last week';
+    const f = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+    return f(start) + ' – ' + f(end);
+  }
+  if (currentPeriod === 'month') {
+    if (periodOffset === 0) return 'This month';
+    if (periodOffset === -1) return 'Last month';
+    return start.toLocaleDateString('en-IN', { month:'long', year:'numeric' });
+  }
+  if (currentPeriod === 'year') {
+    if (periodOffset === 0) return 'This year';
+    if (periodOffset === -1) return 'Last year';
+    return String(start.getFullYear());
+  }
+}
+
+// ─── Settings ────────────────────────────────────────────────────
 
 function saveSettings() {
   settings.myName = document.getElementById('settingMyName').value || 'You';
@@ -598,83 +682,65 @@ function updateNames() {
   document.getElementById('whoPartnerLabel').textContent = settings.partnerName;
 }
 
+// ─── Add expense ─────────────────────────────────────────────────
+
 function buildCatGrid() {
   const grid = document.getElementById('catGrid');
   grid.innerHTML = CATS.map(c => `
     <button class="cat-btn ${c.id === selectedCat ? 'selected' : ''}" onclick="selectCat('${c.id}')">
       <span class="cat-emoji">${c.emoji}</span>
       <span class="cat-name">${c.name}</span>
-    </button>
-  `).join('');
+    </button>`).join('');
 }
 
-function selectCat(id) {
-  selectedCat = id;
-  buildCatGrid();
-}
+function selectCat(id) { selectedCat = id; buildCatGrid(); }
 
 function selectWho(who) {
   selectedWho = who;
-  document.getElementById('whoMe').className = 'who-btn' + (who === 'me' ? ' active-me' : '');
-  document.getElementById('whoPartner').className = 'who-btn' + (who === 'partner' ? ' active-partner' : '');
+  document.getElementById('whoMe').className = 'who-btn' + (who==='me' ? ' active-me' : '');
+  document.getElementById('whoPartner').className = 'who-btn' + (who==='partner' ? ' active-partner' : '');
 }
 
 function addExpense() {
   const amount = parseFloat(document.getElementById('addAmount').value);
   const desc = document.getElementById('addDesc').value.trim();
   const date = document.getElementById('addDate').value;
-
   if (!amount || amount <= 0) { showToast('Enter a valid amount'); return; }
   if (!desc) { showToast('Add a description'); return; }
   if (!date) { showToast('Pick a date'); return; }
-
-  const exp = { id: Date.now().toString(), amount, desc, who: selectedWho, cat: selectedCat, date };
-  expenses.push(exp);
+  expenses.push({ id: Date.now().toString(), amount, desc, who: selectedWho, cat: selectedCat, date });
   localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
-
   document.getElementById('addAmount').value = '';
   document.getElementById('addDesc').value = '';
   document.getElementById('addDate').value = todayStr();
   selectedCat = 'food'; selectedWho = 'me';
   buildCatGrid(); selectWho('me');
-
   showToast('Expense added ✓');
   renderHome();
   showPage('home');
 }
 
-function getWeekExpenses(offset = 0) {
-  const { start, end } = getWeekRange(offset);
-  end.setHours(23,59,59,999);
-  return expenses.filter(e => {
-    const d = new Date(e.date);
-    return d >= start && d <= end;
-  });
-}
-
-function catInfo(id) { return CATS.find(c => c.id === id) || CATS[7]; }
+// ─── Home ─────────────────────────────────────────────────────────
 
 function renderHome() {
-  const wexp = getWeekExpenses(0);
-  const total = wexp.reduce((s,e) => s + e.amount, 0);
-  const myTotal = wexp.filter(e => e.who === 'me').reduce((s,e) => s + e.amount, 0);
-  const pTotal = wexp.filter(e => e.who === 'partner').reduce((s,e) => s + e.amount, 0);
+  const { start, end } = getWeekRange(0);
+  const wexp = expenses.filter(e => { const d = new Date(e.date); return d >= start && d <= end; });
+  const total = wexp.reduce((s,e) => s+e.amount, 0);
+  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT  = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
 
   document.getElementById('headerTotal').textContent = fmt(total);
-  document.getElementById('mySplit').textContent = fmt(myTotal);
-  document.getElementById('partnerSplit').textContent = fmt(pTotal);
+  document.getElementById('mySplit').textContent = fmt(myT);
+  document.getElementById('partnerSplit').textContent = fmt(pT);
   document.getElementById('myCount').textContent = wexp.filter(e=>e.who==='me').length + ' expenses';
   document.getElementById('partnerCount').textContent = wexp.filter(e=>e.who==='partner').length + ' expenses';
 
-  const { start, end } = getWeekRange(0);
-  const fmt2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-  document.getElementById('headerWeek').textContent = `${fmt2(start)} – ${fmt2(end)}`;
+  const f2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  document.getElementById('headerWeek').textContent = f2(start) + ' – ' + f2(end);
 
-  // Top cats
   const catTotals = {};
   wexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
-  const sorted = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0,4);
-
+  const sorted = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,4);
   const topDiv = document.getElementById('topCatList');
   if (!sorted.length) {
     topDiv.innerHTML = '<div class="empty-state" style="padding:16px 0"><div class="icon">🧾</div><p>No expenses yet</p></div>';
@@ -682,30 +748,25 @@ function renderHome() {
     const max = sorted[0][1];
     topDiv.innerHTML = sorted.map(([id,amt]) => {
       const c = catInfo(id);
-      const pct = Math.round(amt/max*100);
       return `<div class="cat-row">
-        <div class="cat-row-info">
-          <span style="font-size:16px">${c.emoji}</span>
-          <span style="font-size:13px;font-weight:500">${c.name}</span>
-        </div>
-        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%;background:${c.color}"></div></div>
+        <div class="cat-row-info"><span style="font-size:16px">${c.emoji}</span><span style="font-size:13px;font-weight:500">${c.name}</span></div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${Math.round(amt/max*100)}%;background:${c.color}"></div></div>
         <div class="cat-row-amount">${fmt(amt)}</div>
       </div>`;
     }).join('');
   }
 
-  // Recent
-  const recent = [...expenses].sort((a,b) => b.id-a.id).slice(0,10);
+  const recent = [...expenses].sort((a,b)=>b.id-a.id).slice(0,10);
   const recentDiv = document.getElementById('recentList');
   if (!recent.length) {
     recentDiv.innerHTML = '<div class="empty-state" style="padding:16px 0"><div class="icon">💸</div><p>Add your first expense!</p></div>';
   } else {
     recentDiv.innerHTML = recent.map(e => {
       const c = catInfo(e.cat);
-      const whoName = e.who === 'me' ? settings.myName : settings.partnerName;
-      const whoColor = e.who === 'me' ? 'var(--accent2)' : 'var(--green)';
+      const whoName = e.who==='me' ? settings.myName : settings.partnerName;
+      const whoColor = e.who==='me' ? 'var(--accent2)' : 'var(--green)';
       const dateStr = new Date(e.date).toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-      return `<div class="expense-item" onclick="openDelete('${e.id}','${e.desc}',${e.amount})">
+      return `<div class="expense-item" onclick="openDelete('${e.id}','${e.desc.replace(/'/g,"\'")}',${e.amount})">
         <div class="expense-icon" style="background:${c.color}22">${c.emoji}</div>
         <div class="expense-info">
           <div class="expense-name">${e.desc}</div>
@@ -720,132 +781,213 @@ function renderHome() {
   }
 }
 
-function renderCharts() {
-  const wexp = getWeekExpenses(chartWeekOffset);
-  document.getElementById('chartWeekLabel').textContent = weekLabel(chartWeekOffset);
+// ─── Charts ───────────────────────────────────────────────────────
 
-  // Daily chart
-  const { start } = getWeekRange(chartWeekOffset);
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  const dayTotals = Array(7).fill(0);
-  const dayMine = Array(7).fill(0);
-  const dayPart = Array(7).fill(0);
-
-  wexp.forEach(e => {
-    const d = new Date(e.date);
-    let dow = d.getDay() - 1; if (dow < 0) dow = 6;
-    dayTotals[dow] += e.amount;
-    if (e.who === 'me') dayMine[dow] += e.amount;
-    else dayPart[dow] += e.amount;
+function setPeriod(p) {
+  currentPeriod = p;
+  periodOffset = 0;
+  document.querySelectorAll('.period-tab').forEach((b,i) => {
+    b.classList.toggle('active', ['week','month','year','all'][i] === p);
   });
+  // Hide nav for "all time"
+  document.getElementById('periodNav').style.display = p === 'all' ? 'none' : 'flex';
+  renderCharts();
+}
 
-  if (dailyChartInst) dailyChartInst.destroy();
-  dailyChartInst = new Chart(document.getElementById('dailyChart'), {
+function changePeriod(dir) {
+  periodOffset += dir;
+  if (periodOffset > 0) periodOffset = 0;
+  renderCharts();
+}
+
+function renderCharts() {
+  const pexp = getPeriodExpenses();
+  document.getElementById('chartPeriodLabel').textContent = getPeriodLabel();
+
+  // Summary strip
+  const myT = pexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT  = pexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+  document.getElementById('chartMyLabel').textContent = settings.myName;
+  document.getElementById('chartPartnerLabel').textContent = settings.partnerName;
+  document.getElementById('chartMyAmt').textContent = fmt(myT);
+  document.getElementById('chartPartnerAmt').textContent = fmt(pT);
+  document.getElementById('chartMyCount').textContent = pexp.filter(e=>e.who==='me').length + ' expenses';
+  document.getElementById('chartPartnerCount').textContent = pexp.filter(e=>e.who==='partner').length + ' expenses';
+
+  // ── Main chart ──
+  let mainLabels = [], mainMine = [], mainPart = [];
+
+  if (currentPeriod === 'week') {
+    document.getElementById('mainChartTitle').textContent = 'Daily spending';
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    mainLabels = days;
+    mainMine = Array(7).fill(0); mainPart = Array(7).fill(0);
+    pexp.forEach(e => {
+      let dow = new Date(e.date).getDay() - 1; if (dow < 0) dow = 6;
+      if (e.who==='me') mainMine[dow] += e.amount; else mainPart[dow] += e.amount;
+    });
+  } else if (currentPeriod === 'month') {
+    document.getElementById('mainChartTitle').textContent = 'Spending by week';
+    // Split month into 4-5 week buckets
+    const { start } = getMonthRange(periodOffset);
+    const month = start.getMonth(), year = start.getFullYear();
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    const weeks = [];
+    for (let d = 1; d <= daysInMonth; d += 7) {
+      const wEnd = Math.min(d+6, daysInMonth);
+      weeks.push({ from: d, to: wEnd });
+    }
+    mainLabels = weeks.map(w => w.from + (w.from===w.to ? '' : '-'+w.to));
+    mainMine = Array(weeks.length).fill(0);
+    mainPart = Array(weeks.length).fill(0);
+    pexp.forEach(e => {
+      const day = new Date(e.date).getDate();
+      const wi = weeks.findIndex(w => day >= w.from && day <= w.to);
+      if (wi >= 0) { if (e.who==='me') mainMine[wi] += e.amount; else mainPart[wi] += e.amount; }
+    });
+  } else if (currentPeriod === 'year') {
+    document.getElementById('mainChartTitle').textContent = 'Monthly spending';
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    mainLabels = MONTHS;
+    mainMine = Array(12).fill(0); mainPart = Array(12).fill(0);
+    pexp.forEach(e => {
+      const m = new Date(e.date).getMonth();
+      if (e.who==='me') mainMine[m] += e.amount; else mainPart[m] += e.amount;
+    });
+  } else {
+    // All time — group by year-month
+    document.getElementById('mainChartTitle').textContent = 'Monthly spending (all time)';
+    const buckets = {};
+    expenses.forEach(e => {
+      const d = new Date(e.date);
+      const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+      if (!buckets[key]) buckets[key] = { me:0, partner:0 };
+      buckets[key][e.who==='me'?'me':'partner'] += e.amount;
+    });
+    const keys = Object.keys(buckets).sort();
+    mainLabels = keys.map(k => { const [y,m] = k.split('-'); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+y.slice(2); });
+    mainMine = keys.map(k => buckets[k].me);
+    mainPart = keys.map(k => buckets[k].partner);
+  }
+
+  if (mainChartInst) mainChartInst.destroy();
+  mainChartInst = new Chart(document.getElementById('mainChart'), {
     type: 'bar',
     data: {
-      labels: days,
+      labels: mainLabels,
       datasets: [
-        { label: settings.myName, data: dayMine, backgroundColor: 'rgba(124,109,248,0.7)', borderRadius: 6, borderSkipped: false },
-        { label: settings.partnerName, data: dayPart, backgroundColor: 'rgba(78,205,196,0.7)', borderRadius: 6, borderSkipped: false },
+        { label: settings.myName, data: mainMine, backgroundColor:'rgba(124,109,248,0.7)', borderRadius:6, borderSkipped:false },
+        { label: settings.partnerName, data: mainPart, backgroundColor:'rgba(78,205,196,0.7)', borderRadius:6, borderSkipped:false },
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color:'#8888aa', font:{ family:'DM Sans', size:12 }, boxWidth:10, boxHeight:10, borderRadius:3 } } },
+      plugins: { legend: { labels: { color:'#8888aa', font:{family:'DM Sans',size:12}, boxWidth:10, boxHeight:10, borderRadius:3 } } },
       scales: {
-        x: { stacked: true, ticks:{ color:'#8888aa', font:{size:11} }, grid:{ display:false }, border:{display:false} },
-        y: { stacked: true, ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{display:false} }
+        x: { stacked:true, ticks:{ color:'#8888aa', font:{size:11}, maxRotation:45 }, grid:{ display:false }, border:{ display:false } },
+        y: { stacked:true, ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{ display:false } }
       }
     }
   });
 
-  // Category breakdown
+  // ── Category breakdown ──
   const catTotals = {};
-  wexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
-  const sortedCats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]);
+  pexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
+  const sortedCats = Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
   const maxCat = sortedCats[0]?.[1] || 1;
   const catDiv = document.getElementById('catBreakdown');
   if (!sortedCats.length) {
-    catDiv.innerHTML = '<div class="empty-state"><div class="icon">📊</div><p>No data this week</p></div>';
+    catDiv.innerHTML = '<div class="empty-state"><div class="icon">📊</div><p>No data for this period</p></div>';
   } else {
     catDiv.innerHTML = sortedCats.map(([id,amt]) => {
       const c = catInfo(id);
-      const pct = Math.round(amt/maxCat*100);
-      const pctOfTotal = wexp.reduce((s,e)=>s+e.amount,0);
       return `<div class="cat-row">
-        <div class="cat-row-info">
-          <span style="font-size:16px">${c.emoji}</span>
-          <span style="font-size:13px;font-weight:500">${c.name}</span>
-        </div>
-        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%;background:${c.color}"></div></div>
+        <div class="cat-row-info"><span style="font-size:16px">${c.emoji}</span><span style="font-size:13px;font-weight:500">${c.name}</span></div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${Math.round(amt/maxCat*100)}%;background:${c.color}"></div></div>
         <div class="cat-row-amount">${fmt(amt)}</div>
       </div>`;
     }).join('');
   }
 
-  // Split chart
-  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
-  const pT = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+  // ── Split donut ──
   if (splitChartInst) splitChartInst.destroy();
   splitChartInst = new Chart(document.getElementById('splitChart'), {
     type: 'doughnut',
     data: {
       labels: [settings.myName, settings.partnerName],
-      datasets: [{ data: [myT||0.001, pT||0.001], backgroundColor: ['rgba(124,109,248,0.8)','rgba(78,205,196,0.8)'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data:[myT||0.001, pT||0.001], backgroundColor:['rgba(124,109,248,0.8)','rgba(78,205,196,0.8)'], borderWidth:0, hoverOffset:4 }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      cutout: '65%',
+      responsive:true, maintainAspectRatio:false, cutout:'65%',
       plugins: {
         legend: { position:'right', labels:{ color:'#8888aa', font:{family:'DM Sans',size:12}, boxWidth:10, boxHeight:10, borderRadius:3 } },
-        tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.raw === 0.001 ? 0 : ctx.raw)}` } }
+        tooltip: { callbacks: { label: ctx => ' ' + fmt(ctx.raw === 0.001 ? 0 : ctx.raw) } }
       }
     }
   });
 
-  // Weekly totals (last 8 weeks)
-  const weekLabels = [], weekData = [];
-  for (let w = -7; w <= 0; w++) {
-    const wk = getWeekRange(w);
-    const end2 = new Date(wk.end); end2.setHours(23,59,59,999);
-    const sum = expenses.filter(e => { const d = new Date(e.date); return d >= wk.start && d <= end2; }).reduce((s,e)=>s+e.amount,0);
-    const lbl = wk.start.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-    weekLabels.push(lbl);
-    weekData.push(sum);
+  // ── Trend chart ──
+  let trendLabels = [], trendData = [];
+  const trendCard = document.getElementById('trendCard');
+
+  if (currentPeriod === 'week') {
+    document.getElementById('trendChartTitle').textContent = 'Weekly totals (last 8 weeks)';
+    trendCard.style.display = 'block';
+    for (let w = -7; w <= 0; w++) {
+      const { start, end } = getWeekRange(w);
+      const sum = expenses.filter(e => { const d=new Date(e.date); return d>=start&&d<=end; }).reduce((s,e)=>s+e.amount,0);
+      trendLabels.push(start.toLocaleDateString('en-IN', { day:'numeric', month:'short' }));
+      trendData.push(sum);
+    }
+  } else if (currentPeriod === 'month') {
+    document.getElementById('trendChartTitle').textContent = 'Monthly totals (last 12 months)';
+    trendCard.style.display = 'block';
+    for (let m = -11; m <= 0; m++) {
+      const { start, end } = getMonthRange(m);
+      const sum = expenses.filter(e => { const d=new Date(e.date); return d>=start&&d<=end; }).reduce((s,e)=>s+e.amount,0);
+      trendLabels.push(start.toLocaleDateString('en-IN', { month:'short', year:'2-digit' }));
+      trendData.push(sum);
+    }
+  } else if (currentPeriod === 'year') {
+    document.getElementById('trendChartTitle').textContent = 'Yearly totals';
+    trendCard.style.display = 'block';
+    const thisYear = new Date().getFullYear();
+    for (let y = -4; y <= 0; y++) {
+      const { start, end } = getYearRange(y);
+      const sum = expenses.filter(e => { const d=new Date(e.date); return d>=start&&d<=end; }).reduce((s,e)=>s+e.amount,0);
+      trendLabels.push(String(thisYear + y));
+      trendData.push(sum);
+    }
+  } else {
+    trendCard.style.display = 'none';
   }
-  if (weeklyChartInst) weeklyChartInst.destroy();
-  weeklyChartInst = new Chart(document.getElementById('weeklyChart'), {
-    type: 'line',
-    data: {
-      labels: weekLabels,
-      datasets: [{
-        label: 'Weekly total',
-        data: weekData,
-        borderColor: '#7c6df8',
-        backgroundColor: 'rgba(124,109,248,0.12)',
-        fill: true,
-        tension: 0.4,
-        pointBackgroundColor: '#7c6df8',
-        pointRadius: 4,
-        pointHoverRadius: 6,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks:{ color:'#8888aa', font:{size:10}, maxRotation:45 }, grid:{ display:false }, border:{display:false} },
-        y: { ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{display:false} }
+
+  if (trendCard.style.display !== 'none') {
+    if (trendChartInst) trendChartInst.destroy();
+    trendChartInst = new Chart(document.getElementById('trendChart'), {
+      type: 'line',
+      data: {
+        labels: trendLabels,
+        datasets: [{
+          label:'Total', data: trendData,
+          borderColor:'#7c6df8', backgroundColor:'rgba(124,109,248,0.12)',
+          fill:true, tension:0.4,
+          pointBackgroundColor:'#7c6df8', pointRadius:4, pointHoverRadius:6,
+        }]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false } },
+        scales: {
+          x: { ticks:{ color:'#8888aa', font:{size:10}, maxRotation:45 }, grid:{ display:false }, border:{ display:false } },
+          y: { ticks:{ color:'#8888aa', font:{size:11}, callback: v => settings.currency+v }, grid:{ color:'rgba(255,255,255,0.05)' }, border:{ display:false } }
+        }
       }
-    }
-  });
+    });
+  }
 }
 
-function changeWeek(dir) {
-  chartWeekOffset += dir;
-  if (chartWeekOffset > 0) chartWeekOffset = 0;
-  renderCharts();
-}
+// ─── Navigation ───────────────────────────────────────────────────
 
 function showPage(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -855,6 +997,8 @@ function showPage(page) {
   if (page === 'charts') renderCharts();
   if (page === 'home') renderHome();
 }
+
+// ─── Delete ───────────────────────────────────────────────────────
 
 function openDelete(id, desc, amount) {
   pendingDeleteId = id;
@@ -869,52 +1013,44 @@ function confirmDelete() {
   if (!pendingDeleteId) return;
   expenses = expenses.filter(e => e.id !== pendingDeleteId);
   localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
-  closeModal();
-  showToast('Deleted');
-  renderHome();
+  closeModal(); showToast('Deleted'); renderHome();
 }
+
+// ─── Settings actions ─────────────────────────────────────────────
 
 function confirmClearAll() {
   if (confirm('Delete all expense data? This cannot be undone.')) {
     expenses = [];
     localStorage.setItem('duospend_expenses', JSON.stringify(expenses));
-    showToast('All data cleared');
-    renderHome();
+    showToast('All data cleared'); renderHome();
   }
 }
 
 function exportWeek() {
-  const wexp = getWeekExpenses(0);
-  if (!wexp.empty && !wexp.length) { showToast('No expenses this week'); return; }
   const { start, end } = getWeekRange(0);
-  const fmt2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  const wexp = expenses.filter(e => { const d=new Date(e.date); return d>=start&&d<=end; });
+  if (!wexp.length) { showToast('No expenses this week'); return; }
   const total = wexp.reduce((s,e)=>s+e.amount,0);
   const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
-  const pT = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
-
-  let text = `💰 Week ${fmt2(start)} – ${fmt2(end)}\nTotal: ${fmt(total)}\n${settings.myName}: ${fmt(myT)} | ${settings.partnerName}: ${fmt(pT)}\n\n`;
-  const sorted = [...wexp].sort((a,b) => new Date(a.date)-new Date(b.date));
-  sorted.forEach(e => {
+  const pT  = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+  const f2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+  let text = `💰 Week ${f2(start)} – ${f2(end)}\nTotal: ${fmt(total)}\n${settings.myName}: ${fmt(myT)} | ${settings.partnerName}: ${fmt(pT)}\n\n`;
+  [...wexp].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(e => {
     const c = catInfo(e.cat);
-    const who = e.who==='me'?settings.myName:settings.partnerName;
-    text += `${e.date} ${c.emoji} ${e.desc} — ${fmt(e.amount)} (${who})\n`;
+    text += `${e.date} ${c.emoji} ${e.desc} — ${fmt(e.amount)} (${e.who==='me'?settings.myName:settings.partnerName})\n`;
   });
-
-  if (navigator.share) {
-    navigator.share({ text });
-  } else {
-    navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard!'));
-  }
+  if (navigator.share) { navigator.share({ text }); }
+  else { navigator.clipboard.writeText(text).then(()=>showToast('Copied!')); }
 }
+
+// ─── Toast ────────────────────────────────────────────────────────
 
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
+  t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-// Close modal on overlay click
 document.getElementById('deleteModal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
