@@ -451,13 +451,6 @@
 
 <div id="page-charts" class="page">
 
-  <div class="period-tabs">
-    <button class="period-tab active" onclick="setPeriod('week')">Week</button>
-    <button class="period-tab" onclick="setPeriod('month')">Month</button>
-    <button class="period-tab" onclick="setPeriod('year')">Year</button>
-    <button class="period-tab" onclick="setPeriod('all')">All Time</button>
-  </div>
-
   <div class="week-nav" id="periodNav">
     <button class="week-nav-btn" onclick="changePeriod(-1)">‹</button>
     <div class="week-label" id="chartPeriodLabel">This week</div>
@@ -533,14 +526,25 @@
   </div>
 
   <div class="card">
-    <div class="card-title">Data</div>
+    <div class="card-title">Export &amp; Share</div>
     <div class="setting-row">
       <div>
-        <div class="setting-label">Export this week</div>
-        <div class="setting-sub">Copy as text to share</div>
+        <div class="setting-label">This week</div>
+        <div class="setting-sub" id="exportWeekSub">Copy as text to share</div>
       </div>
-      <button class="week-nav-btn" onclick="exportWeek()" style="width:auto;padding:0 14px;font-size:13px">Share</button>
+      <button class="week-nav-btn" onclick="exportPeriod('week')" style="width:auto;padding:0 14px;font-size:13px">Share</button>
     </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-label">This month</div>
+        <div class="setting-sub" id="exportMonthSub">Copy as text to share</div>
+      </div>
+      <button class="week-nav-btn" onclick="exportPeriod('month')" style="width:auto;padding:0 14px;font-size:13px">Share</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Data</div>
     <div class="setting-row">
       <div>
         <div class="setting-label" style="color:var(--red)">Clear all data</div>
@@ -619,10 +623,14 @@ function todayStr() { return new Date().toISOString().split('T')[0]; }
 
 function setHomePeriod(p) {
   homePeriod = p;
+  currentPeriod = p;
+  periodOffset = 0;
   document.querySelectorAll('.home-period-tab').forEach((b,i) => {
     b.classList.toggle('active', ['week','month','year','all'][i] === p);
   });
   renderHome();
+  // if charts page is visible, refresh it too
+  if (document.getElementById('page-charts').classList.contains('active')) renderCharts();
 }
 
 function getHomePeriodExpenses() {
@@ -829,11 +837,11 @@ function renderHome() {
 
 function setPeriod(p) {
   currentPeriod = p;
+  homePeriod = p;
   periodOffset = 0;
-  document.querySelectorAll('.period-tab').forEach((b,i) => {
+  document.querySelectorAll('.home-period-tab').forEach((b,i) => {
     b.classList.toggle('active', ['week','month','year','all'][i] === p);
   });
-  // Hide nav for "all time"
   document.getElementById('periodNav').style.display = p === 'all' ? 'none' : 'flex';
   renderCharts();
 }
@@ -1038,7 +1046,13 @@ function showPage(page) {
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + page).classList.add('active');
   document.getElementById('nav-' + page).classList.add('active');
-  if (page === 'charts') renderCharts();
+  if (page === 'charts') {
+    // sync charts period to home period
+    currentPeriod = homePeriod;
+    periodOffset = 0;
+    document.getElementById('periodNav').style.display = homePeriod === 'all' ? 'none' : 'flex';
+    renderCharts();
+  }
   if (page === 'home') renderHome();
 }
 
@@ -1070,21 +1084,38 @@ function confirmClearAll() {
   }
 }
 
-function exportWeek() {
-  const { start, end } = getWeekRange(0);
-  const wexp = expenses.filter(e => { const d=new Date(e.date); return d>=start&&d<=end; });
-  if (!wexp.length) { showToast('No expenses this week'); return; }
-  const total = wexp.reduce((s,e)=>s+e.amount,0);
-  const myT = wexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
-  const pT  = wexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
-  const f2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
-  let text = `💰 Week ${f2(start)} – ${f2(end)}\nTotal: ${fmt(total)}\n${settings.myName}: ${fmt(myT)} | ${settings.partnerName}: ${fmt(pT)}\n\n`;
-  [...wexp].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(e => {
-    const c = catInfo(e.cat);
-    text += `${e.date} ${c.emoji} ${e.desc} — ${fmt(e.amount)} (${e.who==='me'?settings.myName:settings.partnerName})\n`;
+function exportPeriod(period) {
+  let range, label;
+  if (period === 'week') {
+    range = getWeekRange(0);
+    const f2 = d => d.toLocaleDateString('en-IN', { day:'numeric', month:'short' });
+    label = 'Week ' + f2(range.start) + ' – ' + f2(range.end);
+  } else {
+    range = getMonthRange(0);
+    label = range.start.toLocaleDateString('en-IN', { month:'long', year:'numeric' });
+  }
+  const pexp = expenses.filter(e => { const d=new Date(e.date); return d>=range.start&&d<=range.end; });
+  if (!pexp.length) { showToast('No expenses for this period'); return; }
+  const total = pexp.reduce((s,e)=>s+e.amount,0);
+  const myT = pexp.filter(e=>e.who==='me').reduce((s,e)=>s+e.amount,0);
+  const pT  = pexp.filter(e=>e.who==='partner').reduce((s,e)=>s+e.amount,0);
+
+  // Group by category for summary
+  const catTotals = {};
+  pexp.forEach(e => { catTotals[e.cat] = (catTotals[e.cat]||0) + e.amount; });
+  const catSummary = Object.entries(catTotals).sort((a,b)=>b[1]-a[1])
+    .map(([id,amt]) => { const ci=catInfo(id); return ci.emoji+' '+ci.name+': '+fmt(amt); }).join(' | ');
+
+  let text = '💰 ' + label + '\n';
+  text += 'Total: ' + fmt(total) + '\n';
+  text += settings.myName + ': ' + fmt(myT) + ' | ' + settings.partnerName + ': ' + fmt(pT) + '\n';
+  text += catSummary + '\n\n';
+  [...pexp].sort((a,b)=>new Date(a.date)-new Date(b.date)).forEach(e => {
+    const ci = catInfo(e.cat);
+    text += e.date + ' ' + ci.emoji + ' ' + e.desc + ' — ' + fmt(e.amount) + ' (' + (e.who==='me'?settings.myName:settings.partnerName) + ')\n';
   });
   if (navigator.share) { navigator.share({ text }); }
-  else { navigator.clipboard.writeText(text).then(()=>showToast('Copied!')); }
+  else { navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard!')); }
 }
 
 // ─── Toast ────────────────────────────────────────────────────────
